@@ -3,6 +3,7 @@ package br.com.google.api;
 import java.io.IOException;
 import java.security.GeneralSecurityException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
@@ -65,15 +66,14 @@ public class EmailApi {
         .build();
 		
 		Spreadsheet planilha = new Spreadsheet();
-		Sheet sheet = planilha.getSheets().get(0);
-
+		
 		Wrapper retorno = null;
 		for (Message message : messages) {
 			Message email = gmail.users().messages()
 					.get(user.getEmail(), message.getId()).execute();
 			
 			List<MessagePartHeader> headers = email.getPayload().getHeaders();
-			
+			retorno = new Wrapper();
 			for (MessagePartHeader h : headers) {
 				if ("Subject".equals(h.getName())) {
 					retorno.setAssunto(h.getValue());
@@ -92,6 +92,12 @@ public class EmailApi {
 		propriedades.setTitle("Planilha-Mails-" + new SimpleDateFormat("dd-MMM-yyyy-HH_mm_ss").format(new Date()));
 		planilha.setProperties(propriedades);
 		Spreadsheet execute = spreadSheet.spreadsheets().create(planilha).execute();
+		ArrayList<GridData> gridData = new ArrayList<GridData>();
+		GridData cell = new GridData();
+		cell.set("A1", "AAAA");
+		gridData.add(cell);
+		Sheet sheet = execute.getSheets().get(0);
+		sheet.setData(gridData);
 		
 		return new Wrapper(execute.getSpreadsheetId().toString(), execute.getProperties().getTitle());
 	}
