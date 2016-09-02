@@ -12,7 +12,6 @@ import com.google.api.services.gmail.Gmail;
 import com.google.api.services.gmail.model.Message;
 import com.google.api.services.gmail.model.MessagePartHeader;
 import com.google.api.services.sheets.v4.Sheets;
-import com.google.api.services.sheets.v4.model.BatchUpdateValuesRequest;
 import com.google.api.services.sheets.v4.model.Spreadsheet;
 import com.google.api.services.sheets.v4.model.SpreadsheetProperties;
 import com.google.api.services.sheets.v4.model.ValueRange;
@@ -38,28 +37,57 @@ import javax.servlet.http.HttpServletRequest;
     audiences = {Constants.ANDROID_AUDIENCE})
 public class EmailApi {
 
+  /**
+   *
+   */
+  private final String appName = "E-mail List";
+  private NetHttpTransport httpTransport;
+  private JacksonFactory jsonFactory;
+
+  /**
+   * @throws IOException
+   * @throws GeneralSecurityException
+   *
+   */
+  public EmailApi() throws GeneralSecurityException, IOException {
+    httpTransport = GoogleNetHttpTransport.newTrustedTransport();
+    jsonFactory = JacksonFactory.getDefaultInstance();
+  }
+
   @ApiMethod(name = "obterEmails", path = "email/obterEmails", httpMethod = HttpMethod.POST)
   public <T> Wrapper buscarEmails(final User user,
       final HttpServletRequest request) throws GeneralSecurityException,
       IOException {
-    // http and json factory
-    NetHttpTransport httpTransport = GoogleNetHttpTransport
-        .newTrustedTransport();
-    JacksonFactory jsonFactory = JacksonFactory.getDefaultInstance();
 
+    // Obtendo credencial de acesso a API
+    GoogleCredential credential = getCredential(request);
+
+    // Obtendo dados de emails
+    List<Wrapper> emails = gmailData(user, credential);
+
+    // Spread
+    Spreadsheet execute = createNewSpreadSheet(credential);
+
+    // Populando planilha
+    int i = 1;
+    for (Wrapper wrapper : emails) {
+      inserirLinhaPlanilha(execute, credential, wrapper, ++i);
+    }
+
+    return new Wrapper(execute.getSpreadsheetId().toString(), execute.getProperties().getTitle());
+  }
+
+  /**
+   * @param request
+   * @return
+   */
+  private GoogleCredential getCredential(final HttpServletRequest request) {
     // Token authorizator
     String authorizationHeader = request.getHeader("Authorization");
     String token = authorizationHeader.substring(7);
     GoogleCredential credential = new GoogleCredential()
         .setAccessToken(token);
-
-    // Manipulando dados no gmail.
-    // gmailData(user, httpTransport, jsonFactory, credential);
-
-    // Spread
-    Spreadsheet execute = spreadSheetData(httpTransport, jsonFactory, credential);
-
-    return new Wrapper(execute.getSpreadsheetId().toString(), execute.getProperties().getTitle());
+    return credential;
   }
 
   /**
@@ -69,42 +97,59 @@ public class EmailApi {
    * @return
    * @throws IOException
    */
-  private Spreadsheet spreadSheetData(NetHttpTransport httpTransport, JacksonFactory jsonFactory,
-      GoogleCredential credential) throws IOException {
-    Sheets service = new Sheets.Builder(httpTransport, jsonFactory, credential)
-        .setApplicationName("email")
-        .build();
+  private Spreadsheet createNewSpreadSheet(GoogleCredential credential) throws IOException {
+    Sheets service = getSpreadSheetService(credential);
 
     // Criando uma nova planilha
     Spreadsheet planilha = new Spreadsheet();
-    ArrayList<ValueRange> values = new ArrayList<>();
 
+    SpreadsheetProperties propriedades = getPropriedadesPlanilha();
+    planilha.setProperties(propriedades);
+
+    Spreadsheet execute = service.spreadsheets().create(planilha).execute();
+
+    return execute;
+  }
+
+  /**
+   * @return
+   */
+  private SpreadsheetProperties getPropriedadesPlanilha() {
     SpreadsheetProperties propriedades = new SpreadsheetProperties();
     String nomePlanilha = "Planilha-Mails-"
         + new SimpleDateFormat("dd-MMM-yyyy-HH_mm_ss").format(new Date());
     propriedades.setTitle(nomePlanilha);
-    planilha.setProperties(propriedades);
-    Spreadsheet execute = service.spreadsheets().create(planilha).execute();
+    return propriedades;
+  }
+
+  /**
+   * @param service
+   * @param values
+   * @param execute
+   * @throws IOException
+   */
+  private void inserirLinhaPlanilha(Spreadsheet execute, GoogleCredential credential, Wrapper item,
+      int line)
+      throws IOException {
 
     ValueRange value = new ValueRange();
-    ArrayList<Object> coluna = new ArrayList<Object>();
+    ArrayList<Object> conjuntoLinhas = new ArrayList<Object>();
     ArrayList<Object> linha = new ArrayList<Object>();
-    linha.add("A");
-    linha.add("B");
-    linha.add("C");
-    coluna.add(linha);
-    value.set("values", coluna);
     String sheet = execute.getSheets().get(0).getProperties().getTitle();
-    value.setRange(sheet + "!A1:C1");
-    values.add(value);
-    BatchUpdateValuesRequest request = new BatchUpdateValuesRequest();
-    request.setValueInputOption("RAW");
-    request.setData(values);
+    String range = sheet + "!A" + line + ":D" + line;
 
-    service.spreadsheets().values().batchUpdate(execute.getSpreadsheetId(), request).execute();
-    // service.spreadsheets().values().append(execute.getSpreadsheetId(), sheet + "!A1:A3",
-    // content);
-    return execute;
+    linha.add(item.getId());
+    linha.add(item.getAssunto());
+    linha.add((item.getData() == null ? "-" : item.getData()));
+    linha.add(item.getDestinatario());
+
+    conjuntoLinhas.add(linha);
+
+    value.set("values", conjuntoLinhas);
+    value.setRange(range);
+
+    getSpreadSheetService(credential).spreadsheets().values()
+        .append(execute.getSpreadsheetId(), range, value).setValueInputOption("RAW").execute();
   }
 
   /**
@@ -112,46 +157,113 @@ public class EmailApi {
    * @param httpTransport
    * @param jsonFactory
    * @param credential
+   * @return
    * @throws IOException
    */
-  @SuppressWarnings("unused")
-  private void gmailData(final User user, NetHttpTransport httpTransport,
-      JacksonFactory jsonFactory, GoogleCredential credential) throws IOException {
+  private List<Wrapper> gmailData(final User user, GoogleCredential credential) throws IOException {
     // gmail api
-    Gmail gmail = new Gmail.Builder(httpTransport, jsonFactory, credential)
-        .setApplicationName("tratarEmail").build();
+    Gmail gmailService = getGmailService(credential);
 
-    List<Message> messages = gmail.users().messages().list(user.getEmail())
-        .setMaxResults(20l).execute().getMessages();
+    // Obtem lista de mensagens
+    List<Message> messages = gmailService.users().messages().list(user.getEmail())
+        .setMaxResults(50l).execute().getMessages();
 
     Wrapper retorno = null;
+
+    List<Wrapper> lista = new ArrayList<Wrapper>();
     for (Message message : messages) {
-      Message email = gmail.users().messages()
-          .get(user.getEmail(), message.getId()).execute();
+      String idMessage = message.getId();
+      Message email = gmailService.users().messages()
+          .get(user.getEmail(), idMessage).execute();
+
+      retorno = new Wrapper(idMessage);
+
+      retorno.setData(new SimpleDateFormat("dd/MM/yyyy HH:mm:ss").format(new Date(email
+          .getInternalDate())));
 
       List<MessagePartHeader> headers = email.getPayload().getHeaders();
-      retorno = new Wrapper();
-      for (MessagePartHeader h : headers) {
-        if ("Subject".equals(h.getName())) {
-          retorno.setAssunto(h.getValue());
+      List<String> labelIds = email.getLabelIds();
+      if (labelIds.contains("CHAT")) {
+
+        retorno.setAssunto("Hangout:" + email.getSnippet());
+
+        for (MessagePartHeader h : headers) {
+          if ("From".equals(h.getName())) {
+            retorno.setDestinatario("Origem:" + h.getValue());
+          }
         }
-        if ("Date".equals(h.getName())) {
-          retorno.setData(h.getValue());
+      } else {
+        for (MessagePartHeader h : headers) {
+          if ("Subject".equals(h.getName())) {
+            retorno.setAssunto(h.getValue());
+          }
+          if ("To".equals(h.getName())) {
+            retorno.setDestinatario(h.getValue());
+          }
         }
-        if ("To".equals(h.getName())) {
-          retorno.setDestinatario(h.getValue());
-        }
+
       }
+
+      lista.add(retorno);
     }
+
+    return lista;
+  }
+
+  /**
+   * @param credential
+   * @return
+   */
+  private Gmail getGmailService(GoogleCredential credential) {
+    return new Gmail.Builder(httpTransport, jsonFactory, credential)
+        .setApplicationName(appName).build();
+  }
+
+  /**
+   * @param credential
+   * @return
+   */
+  private Sheets getSpreadSheetService(GoogleCredential credential) {
+    return new Sheets.Builder(httpTransport, jsonFactory, credential)
+        .setApplicationName(appName)
+        .build();
   }
 
 }
 
 
+/**
+ * The Class Wrapper.
+ */
 class Wrapper {
   private String assunto;
   private String data;
   private String destinatario;
+  private String id;
+
+  /**
+   * @return the id
+   */
+  public String getId() {
+    return id;
+  }
+
+  /**
+   * @param id the id to set
+   */
+  public void setId(String id) {
+    this.id = id;
+  }
+
+
+
+  /**
+   * @param id
+   */
+  public Wrapper(String id) {
+    super();
+    this.id = id;
+  }
 
   public Wrapper(String assunto, String data) {
     super();
