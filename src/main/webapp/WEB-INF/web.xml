@@ -7,6 +7,14 @@
             <param-value>br.com.google.api.EmailApi</param-value>
         </init-param>
     </servlet>
+    <servlet>
+    	<servlet-name>TaskQueueServlet</servlet-name>
+    	<servlet-class>br.com.google.servlet.TaskQueueServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+    	<servlet-name>TaskQueueServlet</servlet-name>
+    	<url-pattern>/taskqueue/leremail</url-pattern>
+    </servlet-mapping>
     <servlet-mapping>
         <servlet-name>SystemServiceServlet</servlet-name>
         <url-pattern>/_ah/spi/*</url-pattern>

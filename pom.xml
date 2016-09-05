@@ -102,7 +102,11 @@
 			<artifactId>google-api-services-sheets</artifactId>
 			<version>v4-rev20-1.22.0</version>
 		</dependency>
-
+		<dependency>
+			<groupId>com.google.apis</groupId>
+			<artifactId>google-api-services-taskqueue</artifactId>
+			<version>v1beta2-rev43-1.22.0</version>
+		</dependency>
 	</dependencies>
 
 	<build>
